@@ -1,0 +1,176 @@
+import pandas as pd
+import numpy as np
+import re
+import collections
+# code
+df = pd.read_csv (r"data.csv", on_bad_lines='skip', encoding= 'unicode_escape')
+print(df.head())
+df.shape
+  import spacy
+spacy_english = spacy.load('en_core_web_sm')
+spacy_spanish = spacy.load('es_core_news_sm')
+  df['English_tokens'] = df['English'].apply(lambda x: spacy_english(x))
+def lemmatizer(token):
+    return [lm.lemma_ for lm in token]
+
+df['Eng_lemmats'] = df['English_tokens'].apply( lemmatizer )
+df['Eng_lemmats'].head()
+# split into words
+from nltk.tokenize import word_tokenize
+import string
+from nltk.corpus import stopwords
+def clean_word (text):
+    #print (text)
+    tokens = word_tokenize(text)
+
+    #tokens = spacy_english.tokenizer(text)
+    #print (tokens)
+    tokens = [w.lower() for w in tokens]
+
+    table = str.maketrans('', '', string.punctuation)
+    stripped = [w.translate(table) for w in tokens]
+
+    
+    words = [word for word in stripped if word.isalpha()]
+    #print (words)
+    stop_words = set(stopwords.words('english'))
+    words = [w for w in words if not w in stop_words]
+    return words
+    #print(words[:100])
+df['cleaned_english'] = df['English'].apply( clean_word )
+df['cleaned_english'].head()
+stop_words = set(stopwords.words('spanish'))
+punctuation = set(string.punctuation)
+def clean_word_spanish (text):
+
+    # Tokenize the text
+    doc = spacy_spanish.tokenizer(text)
+    tokens = [token.text for token in doc]
+
+    # Clean the text
+
+    clean_tokens = []
+    for token in tokens:
+        if token.lower() not in stop_words and token not in punctuation:
+            clean_tokens.append(token)
+
+    return clean_tokens
+df['cleaned_spanish'] = df['Spanish'].apply( clean_word )
+df['cleaned_spanish'].head()
+all_words_english = df["cleaned_english"].tolist()
+all_words_spanish = df["cleaned_spanish"].tolist()
+
+from collections import Counter
+
+def find_vocabulary_count (my_corpus):
+    my_list = []
+    total_words = []
+    for c, row in enumerate (my_corpus):
+       #print ("row : \n ", row)
+       for w in row:
+            total_words.append (w)
+            if w not in my_list:
+                my_list.append (w)
+    #print (my_list)
+    counts = Counter(total_words)
+    return my_list, counts
+english_vocabulary, counts = find_vocabulary_count (all_words_english)
+print (english_vocabulary)
+spanish_vocabulary, counts = find_vocabulary_count (all_words_spanish)
+print (spanish_vocabulary)
+import torch
+from torch.utils.data import Dataset, DataLoader, Subset
+
+import random
+import math
+from sklearn.feature_extraction.text import CountVectorizer
+
+# Create a CountVectorizer object
+vectorizer = CountVectorizer()
+# code
+
+def converter_en (row):
+    bow = []
+    for w in english_vocabulary:
+        #print (w)
+        if w in row:
+            bow.append (1.0)
+        else:
+            bow.append (0.0)
+    return np.array (bow)
+
+
+def converter_es (row):
+    bow = []
+    for w in spanish_vocabulary:
+        #print (w)
+        if w in row:
+            bow.append (1.0)
+        else:
+            bow.append (0.0)
+    return np.array (bow)
+df['converter_en'] = df['cleaned_english'].apply( converter_en)
+print (df['converter_en'].head())
+df['converter_es'] = df['cleaned_spanish'].apply( converter_es )
+print (df['converter_es'].head())
+df.head()
+from sklearn.feature_extraction.text import CountVectorizer
+vectorizer = CountVectorizer()
+
+
+class TranslationDataset(Dataset):
+    def __init__(self, src_df, trg_df):
+        self.src_df = src_df
+        self.trg_df = trg_df
+        
+    def __len__(self):
+        return len(self.src_df)
+    
+    
+    def __getitem__(self, idx):
+        
+        src_sentence = self.src_df.iat[idx]
+        trg_sentence = self.trg_df.iat[idx]
+        
+
+        
+        return torch.tensor(src_sentence), torch.tensor(trg_sentence)
+dataset = TranslationDataset(df['converter_en'], df['converter_es'])
+train_ratio = 0.8
+test_ratio = 0.1
+valid_ratio = 0.1
+batch_size = 8
+dataset_size = len(dataset)
+train_size = math.floor(dataset_size * train_ratio)
+test_size = math.floor(dataset_size * test_ratio)
+valid_size = dataset_size - train_size - test_size
+
+print ("num of train samples : ", train_size)
+print ("num of test samples : ", test_size)
+print ("num of valid samples : ", valid_size)
+indices = list(range(dataset_size))
+random.shuffle(indices)
+train_indices = indices[:train_size]
+test_indices = indices[train_size:train_size+test_size]
+valid_indices = indices[train_size+test_size:]
+print (train_indices)
+print (test_indices)
+print (valid_indices)
+train_dataset = Subset(dataset, train_indices)
+test_dataset = Subset(dataset, test_indices)
+valid_dataset = Subset(dataset, valid_indices)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
+for batch_idx, (inputs, targets) in enumerate(train_loader):
+    # Process the batch
+    print ("English inputs : ", inputs)
+    print ("Spanish outputs : ", targets)
+for batch_idx, (inputs, targets) in enumerate(test_loader):
+    # Process the batch
+    print ("English inputs : ", inputs)
+    print ("Spanish outputs : ", targets)
+for batch_idx, (inputs, targets) in enumerate(valid_loader):
+    # Process the batch
+    print ("English inputs : ", inputs)
+    print ("Spanish outputs : ", targets)
